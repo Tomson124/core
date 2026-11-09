@@ -1,31 +1,33 @@
 """The Fenecon Modbus integration."""
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from fenecon_modbus import FeneconModbusClient
+
+from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
 
-# TODO List the platforms that you want to support.
-# For your initial PR, limit it to 1 platform.
-_PLATFORMS: list[Platform] = [Platform.LIGHT]
+from .const import CONF_UNIT_ID
+from .coordinator import FeneconConfigEntry, FeneconCoordinator
 
-# TODO Create ConfigEntry type alias with API object
-# TODO Rename type alias and update all entry annotations
-type New_NameConfigEntry = ConfigEntry[MyApi]  # noqa: F821
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
-# TODO Update entry annotation
-async def async_setup_entry(hass: HomeAssistant, entry: New_NameConfigEntry) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: FeneconConfigEntry) -> None:
     """Set up Fenecon Modbus from a config entry."""
+    client = FeneconModbusClient(
+        entry.data[CONF_HOST],
+        entry.data[CONF_PORT],
+        unit_id=entry.data[CONF_UNIT_ID],
+    )
+    # Also runs when setup fails, so the socket never outlives the entry
+    entry.async_on_unload(client.close)
 
-    # TODO 1. Create API instance
-    # TODO 2. Validate the API connection (and authentication)
-    # TODO 3. Store an API object for your platforms to access
-    # entry.runtime_data = MyAPI(...)
+    coordinator = FeneconCoordinator(hass, entry, client)
+    await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
 
-# TODO Update entry annotation
-async def async_unload_entry(hass: HomeAssistant, entry: New_NameConfigEntry) -> None:
+async def async_unload_entry(hass: HomeAssistant, entry: FeneconConfigEntry) -> None:
     """Unload a config entry."""
-    await hass.config_entries.async_unload_platforms_or_raise(entry, _PLATFORMS)
+    await hass.config_entries.async_unload_platforms_or_raise(entry, PLATFORMS)

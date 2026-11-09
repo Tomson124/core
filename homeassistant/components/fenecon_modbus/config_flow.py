@@ -1,101 +1,96 @@
 """Config flow for the Fenecon Modbus integration."""
 
 import logging
-from typing import Any
+from typing import Any, override
 
+from fenecon_modbus import (
+    DEFAULT_PORT,
+    DEFAULT_UNIT_ID,
+    FeneconConnectionError,
+    FeneconInvalidResponseError,
+    FeneconModbusClient,
+)
 import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    TextSelector,
+)
 
-from .const import DOMAIN
+from .const import CONF_UNIT_ID, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# TODO adjust the data schema to the data that you need
 STEP_USER_DATA_SCHEMA = probatio.Schema(
     {
-        probatio.Required(CONF_HOST): str,
-        probatio.Required(CONF_USERNAME): str,
-        probatio.Required(CONF_PASSWORD): str,
+        probatio.Required(CONF_HOST): TextSelector(),
+        probatio.Required(CONF_PORT, default=DEFAULT_PORT): probatio.All(
+            NumberSelector(
+                NumberSelectorConfig(mode=NumberSelectorMode.BOX, min=1, max=65535)
+            ),
+            probatio.Coerce(int),
+        ),
+        probatio.Required(CONF_UNIT_ID, default=DEFAULT_UNIT_ID): probatio.All(
+            NumberSelector(
+                NumberSelectorConfig(mode=NumberSelectorMode.BOX, min=1, max=255)
+            ),
+            probatio.Coerce(int),
+        ),
     }
 )
 
 
-class PlaceholderHub:
-    """Placeholder class to make tests pass.
-
-    TODO Remove this placeholder class and replace with things from your PyPI package.
-    """
-
-    def __init__(self, host: str) -> None:
-        """Initialize."""
-        self.host = host
-
-    async def authenticate(self, username: str, password: str) -> bool:
-        """Test if we can authenticate with the host."""
-        return True
-
-
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
-    # TODO validate the data can be used to set up a connection.
-
-    # If your PyPI package is not built with async, pass your methods
-    # to the executor:
-    # await hass.async_add_executor_job(
-    #     your_validate_func, data[CONF_USERNAME], data[CONF_PASSWORD]
-    # )
-
-    hub = PlaceholderHub(data[CONF_HOST])
-
-    if not await hub.authenticate(data[CONF_USERNAME], data[CONF_PASSWORD]):
-        raise InvalidAuth
-
-    # If you cannot connect:
-    # throw CannotConnect
-    # If the authentication is wrong:
-    # InvalidAuth
-
-    # Return info that you want to store in the config entry.
-    return {"title": "Name of the device"}
-
-
-class ConfigFlow(ConfigFlow, domain=DOMAIN):
+class FeneconConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Fenecon Modbus."""
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
         if user_input is not None:
+            self._async_abort_entries_match(
+                {CONF_HOST: user_input[CONF_HOST], CONF_PORT: user_input[CONF_PORT]}
+            )
             try:
-                info = await validate_input(self.hass, user_input)
-            except CannotConnect:
+                async with FeneconModbusClient(
+                    user_input[CONF_HOST],
+                    user_input[CONF_PORT],
+                    unit_id=user_input[CONF_UNIT_ID],
+                ) as client:
+                    device_info = await client.read_device_info()
+            except FeneconConnectionError:
                 errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
+            except FeneconInvalidResponseError:
+                errors["base"] = "not_openems"
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return self.async_create_entry(title=info["title"], data=user_input)
+                if serial := device_info.manufacturer_ems_serial_number:
+                    await self.async_set_unique_id(serial)
+                    self._abort_if_unique_id_configured(
+                        updates={
+                            CONF_HOST: user_input[CONF_HOST],
+                            CONF_PORT: user_input[CONF_PORT],
+                        }
+                    )
+                return self.async_create_entry(
+                    title=device_info.manufacturer_model or "FEMS",
+                    data=user_input,
+                )
 
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_USER_DATA_SCHEMA, user_input
+            ),
+            errors=errors,
         )
-
-
-class CannotConnect(Exception):
-    """Error to indicate we cannot connect."""
-
-
-class InvalidAuth(Exception):
-    """Error to indicate there is invalid auth."""
