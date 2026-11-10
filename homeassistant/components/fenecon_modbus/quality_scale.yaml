@@ -37,7 +37,7 @@ rules:
     comment: The integration does not register actions.
   config-entry-unloading: done
   docs-configuration-parameters: todo
-  docs-installation-parameters: todo
+  docs-installation-parameters: done
   entity-unavailable: done
   integration-owner: done
   log-when-unavailable: done
@@ -65,7 +65,7 @@ rules:
   entity-disabled-by-default: done
   entity-translations: done
   exception-translations: done
-  icon-translations: todo
+  icon-translations: done
   reconfiguration-flow: todo
   repair-issues: todo
   stale-devices: todo
